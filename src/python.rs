@@ -238,9 +238,11 @@ impl T4Writer {
         states: PyReadonlyArray2<'_, f64>,
     ) -> PyResult<usize> {
         let ids: Vec<u64> = ids.as_array().iter().copied().collect();
-        let states: Vec<f64> = match states.as_slice() {
-            Ok(values) => values.to_vec(),
-            Err(_) => states.as_array().iter().copied().collect(),
+        // `as_slice` is the memory's order, which is the rows' only for a
+        // C-contiguous array: anything else is read in logical order.
+        let states: Vec<f64> = match states.as_slice().ok().filter(|_| states.is_c_contiguous()) {
+            Some(values) => values.to_vec(),
+            None => states.as_array().iter().copied().collect(),
         };
         self.inner
             .add_carla_boxes(&ids, &states)
@@ -270,9 +272,9 @@ impl T4Writer {
     ) -> PyResult<()> {
         let fields = points.shape()[1];
         let owned;
-        let values: &[f32] = match points.as_slice() {
-            Ok(values) => values,
-            Err(_) => {
+        let values: &[f32] = match points.as_slice().ok().filter(|_| points.is_c_contiguous()) {
+            Some(values) => values,
+            None => {
                 owned = points.as_array().iter().copied().collect::<Vec<f32>>();
                 &owned
             }
@@ -301,9 +303,9 @@ impl T4Writer {
                 format.channels()
             )));
         }
-        let pixels: Vec<u8> = match image.as_slice() {
-            Ok(values) => values.to_vec(),
-            Err(_) => image.as_array().iter().copied().collect(),
+        let pixels: Vec<u8> = match image.as_slice().ok().filter(|_| image.is_c_contiguous()) {
+            Some(values) => values.to_vec(),
+            None => image.as_array().iter().copied().collect(),
         };
         let inner = &mut self.inner;
         py.detach(|| inner.add_camera(channel, pixels, width as u32, height as u32, format))

@@ -328,3 +328,28 @@ fn carla_states_become_map_frame_poses_and_boxes() {
     assert_eq!(anns[0]["num_lidar_pts"], 1);
     assert_close(&floats(&anns[0]["velocity"]), &[0.0, -2.0, 0.0]);
 }
+
+#[test]
+fn a_turning_egos_rear_axle_takes_the_centripetal_acceleration() {
+    let dir = tempfile::tempdir().unwrap();
+    let carla = CarlaFrame {
+        map_offset: [0.0; 3],
+        rear_axle_offset_m: -1.5,
+        max_distance_m: None,
+    };
+    let mut w = T4Writer::create_in(dir.path(), info(), carla, 90, 1, 1).unwrap();
+    let identity = Pose::new([0.0; 3], [1.0, 0.0, 0.0, 0.0]);
+    w.add_sensor("LIDAR_CONCAT", Modality::Lidar, identity, None, None)
+        .unwrap();
+    // Turning in place at 90 deg/s, the actor's origin not accelerating: the
+    // rear axle, 1.5 m behind it, is pulled towards the origin by w^2 r.
+    w.begin_frame_carla(1, [0.0; 6], [0.0; 3], [0.0, 0.0, 90.0], [0.0; 3])
+        .unwrap();
+    w.add_lidar("LIDAR_CONCAT", &[1.0, 0.0, 0.0, 1.0], 4)
+        .unwrap();
+    w.end_frame().unwrap();
+    w.finish().unwrap();
+    let ego = &table(dir.path(), "ego_pose")[0];
+    let w2r = 1.5 * std::f64::consts::FRAC_PI_2.powi(2);
+    assert_close(&floats(&ego["acceleration"]), &[w2r, 0.0, 0.0]);
+}

@@ -857,7 +857,9 @@ impl T4Writer {
     /// `transform` `[x, y, z, roll, pitch, yaw]`, its velocity, angular
     /// velocity (deg/s) and acceleration, in CARLA's world frame.  The pose is
     /// its rear axle's (`CarlaFrame::rear_axle_offset_m`) in the map frame,
-    /// the twist and acceleration in its own frame.
+    /// the twist and acceleration in its own frame, both carried from the
+    /// actor's origin to the rear axle (the acceleration without the angular
+    /// acceleration's term, which CARLA does not report).
     pub fn begin_frame_carla(
         &mut self,
         timestamp_us: u64,
@@ -886,7 +888,17 @@ impl T4Writer {
         let to_local = conjugate(base.rotation);
         let v = rotate(to_local, v);
         let w = rotate(to_local, omega);
-        let a = rotate(to_local, carla::vector(&acceleration));
+        // The rear axle's acceleration: the actor origin's plus the centripetal
+        // term of the lever between them. CARLA reports no angular
+        // acceleration, so its `alpha x lever` term is left out.
+        let a = carla::vector(&acceleration);
+        let centripetal = cross(omega, spin);
+        let a = [
+            a[0] + centripetal[0],
+            a[1] + centripetal[1],
+            a[2] + centripetal[2],
+        ];
+        let a = rotate(to_local, a);
         self.begin_frame(
             timestamp_us,
             EgoState {

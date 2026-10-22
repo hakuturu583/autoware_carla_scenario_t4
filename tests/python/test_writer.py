@@ -180,3 +180,20 @@ def test_the_dataset_passes_t4_devkits_sanity_check(tmp_path: Path) -> None:
     # cloud map here.
     assert failed <= {"STR005", "STR008", "STR009"}
     assert not [r for r in result.reports if r.severity.is_error() and r.status.name == "FAILED"]
+
+
+def test_arrays_in_any_memory_order_are_read_by_row(tmp_path: Path) -> None:
+    """A Fortran-ordered (or transposed) array is read in its logical order,
+    not its memory's."""
+    points = np.array([[1.0, 2.0, 3.0, 0.5], [4.0, 5.0, 6.0, 0.25]], dtype=np.float32)
+    clouds = []
+    for name, array in (("c", points), ("f", np.asfortranarray(points)), ("t", points.T.copy().T)):
+        w = T4Writer(tmp_path / name, scene_name=name)
+        w.add_sensor("LIDAR_CONCAT", "lidar", (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0))
+        w.begin_frame(1, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0))
+        w.add_lidar("LIDAR_CONCAT", array)
+        w.end_frame()
+        w.finish()
+        clouds.append(np.fromfile(tmp_path / name / "data" / "LIDAR_CONCAT" / "00000.pcd.bin", dtype=np.float32))
+    for cloud in clouds:
+        np.testing.assert_array_equal(cloud.reshape(-1, 5)[:, :4], points)

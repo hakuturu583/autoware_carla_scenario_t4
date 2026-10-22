@@ -1,0 +1,8 @@
+/target
+/dist
+/.venv
+__pycache__/
+*.so
+/MyScene.t4
+/python/autoware_carla_scenario_t4/*.so
+.pytest_cache/

@@ -1,0 +1,49 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "autoware-carla-scenario-t4"
+# From Cargo.toml (tools/bump_version.py moves it).
+dynamic = ["version"]
+description = "Write autoware_carla_scenario runs as T4 datasets (TIER IV's nuScenes-style format)"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Masaya Kataoka", email = "ms.kataoka@gmail.com" }]
+# abi3: one wheel per platform for every CPython from 3.10.
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Rust",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = ["numpy>=1.21"]
+
+[project.urls]
+Repository = "https://github.com/hakuturu583/autoware_carla_scenario_t4"
+
+[dependency-groups]
+test = [
+    "pytest>=8",
+    # Reads every dataset the tests write back, at its latest release (it is
+    # not on PyPI under this name). It supports Python 3.10-3.12, and its
+    # sanity checker imports colorama without declaring it.
+    "t4-devkit @ git+https://github.com/tier4/t4-devkit@v0.8.0 ; python_version < '3.13'",
+    "colorama>=0.4.6 ; python_version < '3.13'",
+    # Encodes the JPEG frames the tests hand over already encoded.
+    "pillow>=10",
+]
+
+[tool.maturin]
+features = ["python"]
+python-source = "python"
+module-name = "autoware_carla_scenario_t4._core"
+include = [{ path = "LICENSE", format = "sdist" }]
+# Smaller wheels: no symbols.
+strip = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]

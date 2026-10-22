@@ -1,0 +1,33 @@
+[package]
+name = "autoware_carla_scenario_t4"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+license = "Apache-2.0"
+description = "Write autoware_carla_scenario runs as T4 datasets (TIER IV's nuScenes-style format)"
+repository = "https://github.com/hakuturu583/autoware_carla_scenario_t4"
+readme = "README.md"
+publish = false
+
+[lib]
+name = "autoware_carla_scenario_t4"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+# The Python extension module (maturin turns it on, see pyproject.toml).
+python = ["dep:pyo3", "dep:numpy"]
+
+[dependencies]
+jpeg-encoder = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py310"], optional = true }
+numpy = { version = "0.30", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

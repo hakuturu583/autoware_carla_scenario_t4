@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a pull request makes its running CI moot; pushes to main are
+# never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    # Formatting, lints, and the Rust tests: the writer end to end, the
+    # CARLA-to-map conversion, the boxes' point counts.
+    name: rust (fmt, clippy, test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt --check
+        run: cargo fmt --all --check
+      - name: cargo clippy -D warnings
+        run: cargo clippy --workspace --all-targets --features python -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace
+
+  wheel:
+    # The abi3 wheel, built with maturin and tested from a clean environment
+    # outside the checkout: datasets written through the binding, read back
+    # with t4-devkit v0.8.0 and passed through its sanity checker. t4-devkit
+    # supports Python 3.10-3.12, so 3.14 runs the tests that do not read the
+    # dataset back. The oldest and newest supported Pythons on x86_64, the
+    # newest t4-devkit supports on aarch64.
+    name: wheel (${{ matrix.runner }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04]
+        python: ["3.10", "3.12", "3.14"]
+        include:
+          - { runner: ubuntu-24.04-arm, python: "3.12" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wheel
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the wheel
+        run: uvx maturin build --release --out dist
+      - name: Install it into a clean environment and run the tests
+        env:
+          PY: ${{ matrix.python }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/clean"
+          cp -r tests tools Cargo.toml Cargo.lock pyproject.toml "$RUNNER_TEMP/clean/"
+          cd "$RUNNER_TEMP/clean"
+          uv venv --python "$PY"
+          uv pip install "$GITHUB_WORKSPACE"/dist/*.whl
+          # pyproject.toml's `test` group.
+          uv pip install --group pyproject.toml:test
+          .venv/bin/python -c "import autoware_carla_scenario_t4 as m; assert 'site-packages' in m.__file__, m.__file__; print(m.__version__)"
+          .venv/bin/python -m pytest -v tests/python -p no:cacheprovider
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.runner }}-py${{ matrix.python }}
+          path: dist/*.whl
+          retention-days: 7
+
+  sdist:
+    # What `pip install` builds when no wheel fits: the sdist, built and
+    # installed from source (it needs a Rust toolchain) in a clean environment.
+    name: sdist (build and install from source)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: sdist
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the sdist
+        run: uvx maturin sdist --out dist
+      - name: Install from it and write a dataset
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/clean" && cd "$RUNNER_TEMP/clean"
+          uv venv --python 3.12
+          uv pip install "$GITHUB_WORKSPACE"/dist/*.tar.gz
+          .venv/bin/python - <<'PY'
+          import os, tempfile
+          import numpy as np
+          import autoware_carla_scenario_t4 as m
+          w = m.T4Writer(os.path.join(tempfile.mkdtemp(), "x.t4", "0"), scene_name="x")
+          w.add_sensor("LIDAR_CONCAT", "lidar", (0, 0, 0), (1, 0, 0, 0))
+          w.begin_frame(1, (0, 0, 0), (1, 0, 0, 0))
+          w.add_lidar("LIDAR_CONCAT", np.zeros((10, 4), dtype=np.float32))
+          w.end_frame()
+          s = w.finish()
+          assert s["samples"] == 1 and s["sample_data"] == 1, s
+          print(m.__version__, "OK")
+          PY
+
+  manylinux:
+    # The release's wheel build (release.yml's `wheel` job): maturin-action in
+    # the manylinux_2_28 image, natively per architecture, so that path is
+    # proven on every PR rather than first at release time.
+    name: manylinux_2_28 wheel (${{ matrix.arch.name }})
+    runs-on: ${{ matrix.arch.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - { name: x86_64, runner: ubuntu-24.04 }
+          - { name: aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.arch.name }}
+          manylinux: "2_28"
+          args: --release --out dist
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - name: Check the wheel (abi3, manylinux_2_28, writes a dataset)
+        run: |
+          set -euo pipefail
+          ls -l dist
+          case "$(ls dist/*.whl)" in
+            *-cp310-abi3-manylinux_2_28_${{ matrix.arch.name }}.whl) ;;
+            *) echo "::error::not an abi3 manylinux_2_28 wheel: $(ls dist)"; exit 1 ;;
+          esac
+          python -m venv /tmp/check
+          /tmp/check/bin/pip install dist/*.whl
+          cd /tmp && /tmp/check/bin/python -c "
+          import tempfile, numpy as np, autoware_carla_scenario_t4 as m
+          w = m.T4Writer(tempfile.mkdtemp() + '/x.t4/0', scene_name='x')
+          w.add_sensor('LIDAR_CONCAT', 'lidar', (0, 0, 0), (1, 0, 0, 0))
+          w.begin_frame(1, (0, 0, 0), (1, 0, 0, 0))
+          w.add_lidar('LIDAR_CONCAT', np.zeros((10, 4), dtype=np.float32))
+          w.end_frame()
+          assert w.finish()['samples'] == 1
+          print(m.__version__, 'OK')"

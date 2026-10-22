@@ -84,14 +84,9 @@ pushed `X.Y.Z` tag publishes that version. A manual run (`workflow_dispatch`)
 is a dry run: it tests, builds and checks the sdist and both wheels, and
 uploads nothing. CI builds the same manylinux wheels on every PR.
 
-The first release, 0.1.0 (the version in Cargo.toml):
-
-1. merge this repository's first PR (no release label);
-2. run the Release workflow by hand on `main` and check that the sdist and
-   both manylinux wheels build and pass their checks;
-3. push the tag `0.1.0` on that commit: the run publishes to PyPI, installs
-   the release back from PyPI on both architectures, and publishes the
-   GitHub release.
+The first release went out by label too: 0.1.0 was never published, and the
+PR that added this paragraph, labelled `release:patch`, released 0.1.1. A
+hand-cut tag is still the way to publish a version without a PR.
 
 Publishing uses PyPI Trusted Publishing, no tokens: the project's publisher is
 

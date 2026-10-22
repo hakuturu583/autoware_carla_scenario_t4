@@ -291,7 +291,7 @@ mod tests {
             ]);
         }
         let mut brute = vec![0u64; boxes.len()];
-        for row in points.chunks_exact(4) {
+        for row in points.as_chunks::<4>().0 {
             let p = [f64::from(row[0]), f64::from(row[1]), f64::from(row[2])];
             for (i, b) in boxes.iter().enumerate() {
                 if b.contains(p) {

@@ -267,14 +267,16 @@ impl Job {
                 let mut points = points;
                 if !points.iter().all(|v| v.is_finite()) {
                     points = points
-                        .chunks_exact(4)
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
                         .filter(|row| row[..3].iter().all(|v| v.is_finite()))
                         .flatten()
                         .copied()
                         .collect();
                 }
                 let mut bytes = Vec::with_capacity(points.len() / 4 * 20);
-                for row in points.chunks_exact(4) {
+                for row in points.as_chunks::<4>().0 {
                     for value in row {
                         bytes.extend_from_slice(&value.to_le_bytes());
                     }
@@ -913,7 +915,7 @@ impl T4Writer {
         }
         let limit_sq = self.carla.max_distance_m.map(|d| d * d);
         let mut added = 0;
-        for (id, state) in ids.iter().zip(states.chunks_exact(9)) {
+        for (id, state) in ids.iter().zip(states.as_chunks::<9>().0) {
             let Some(entry) = self.actors.get(id) else {
                 continue;
             };

@@ -181,8 +181,10 @@ fn sweeps_are_written_in_t4s_five_float_layout() {
     write_scene(dir.path());
     let bytes = fs::read(dir.path().join("data/LIDAR_TOP/00000.pcd.bin")).unwrap();
     let floats: Vec<f32> = bytes
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
         .collect();
     assert_eq!(floats.len(), 3 * 5);
     assert_eq!(&floats[..5], &[10.0, 0.0, -1.0, 0.5, -1.0]);
